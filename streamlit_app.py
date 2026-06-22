@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-年間指導計画・個別の指導計画 おたすけツール（ウェブ版 / Streamlit）
+指導計画 おたすけツール（ウェブ版 / Streamlit）
 - 全員共通パスワードでアクセス制限
-- 既存処理（nenkan_app.py）を再利用
 - 個別の指導計画：かんたんアセスメント（3問）→段階推定→3観点の目標案
 """
 import os
@@ -20,23 +19,41 @@ PILLAR_LABELS = {"知識及び技能": "知識及び技能",
                  "学びに向かう力，人間性等": "学びに向かう力・人間性等"}
 ANS_MAP = {"はい": 2, "だいたい": 1, "いいえ": 0}
 
-# ---- 見やすさ用のスタイル ----
+# 学部の並び順（小→中→高）
+BU_ORDER = ["小学部", "中学部", "高等部"]
+# 教科の並び順（学習指導要領の掲載順／学部別）
+SUBJECT_ORDER = {
+    "小学部": ["生活科", "国語科", "算数科", "音楽科", "図画工作科", "体育科"],
+    "中学部": ["国語科", "社会科", "数学科", "理科", "音楽科", "美術科",
+              "保健体育科", "職業家庭科", "外国語科"],
+    "高等部": ["国語科", "社会科", "数学科", "理科", "音楽科", "美術科",
+              "保健体育科", "家庭科", "外国語科", "職業科"],
+}
+
 st.markdown("""
 <style>
-.block-container {padding-top: 2rem; max-width: 1100px;}
-div[data-testid="stRadio"] label p {font-size: 0.95rem;}
-.goalrow {background:#F7FAFF; border:1px solid #DCE6F2; border-radius:8px;
-          padding:8px 12px; margin:6px 0; font-size:1.02rem; line-height:1.6;}
-.goaltag {color:#8A8A8A; font-size:0.85rem;}
+.block-container {padding-top: 2rem; max-width: 1080px;}
 .pillar {background:#3A6B5C; color:white; padding:6px 12px; border-radius:6px;
-         font-weight:700; margin-top:10px;}
+         font-weight:700; margin-top:12px; font-size:1.05rem;}
+.goalrow {background:#F7FAFF; border:1px solid #DCE6F2; border-radius:8px;
+          padding:9px 13px; margin:6px 0; font-size:1.03rem; line-height:1.65;}
+.goaltag {color:#8A8A8A; font-size:0.85rem;}
 .qcard {background:#FBFBF7; border:1px solid #E8E4D8; border-radius:8px;
-        padding:6px 12px; margin:4px 0;}
+        padding:8px 12px; margin:6px 0 2px 0; font-weight:600;}
+.sec {font-weight:700; color:#3A6B5C; font-size:1.05rem; margin:2px 0 6px 0;}
+/* ボタンを穏やかな緑に */
+div[data-testid="stFormSubmitButton"] button,
+div.stButton > button[kind="primary"] {
+    background-color:#3A6B5C !important; border-color:#3A6B5C !important; color:#fff !important;
+}
+div[data-testid="stFormSubmitButton"] button:hover,
+div.stButton > button[kind="primary"]:hover {
+    background-color:#2f5749 !important; border-color:#2f5749 !important; color:#fff !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ---------------- パスワード認証 ----------------
 def _correct_password():
     try:
         return st.secrets["APP_PASSWORD"]
@@ -47,16 +64,23 @@ def _correct_password():
 def require_password():
     if st.session_state.get("auth_ok"):
         return
-    st.title("指導計画 おたすけツール")
-    st.caption("ご利用にはパスワードが必要です。")
-
-    def _check():
-        st.session_state["auth_ok"] = (
-            st.session_state.get("pw_input", "") == _correct_password())
-
-    st.text_input("パスワード", type="password", key="pw_input", on_change=_check)
-    if "auth_ok" in st.session_state and not st.session_state["auth_ok"]:
-        st.error("パスワードが違います。")
+    st.title("📋 指導計画 おたすけツール")
+    mid = st.columns([1, 2, 1])[1]
+    with mid:
+        with st.container(border=True):
+            st.markdown("#### 🔑 合言葉を入力してください")
+            st.caption("このツールを使うには、合言葉（パスワード）が必要です。"
+                       "下の枠に入力して「ログイン」を押してください。")
+            pw = st.text_input("合言葉", type="password",
+                               placeholder="ここに合言葉を入力",
+                               key="pw_input", label_visibility="collapsed")
+            ok = st.button("ログイン", type="primary", use_container_width=True)
+            if ok:
+                if pw == _correct_password():
+                    st.session_state["auth_ok"] = True
+                    st.rerun()
+                else:
+                    st.error("合言葉が違います。もう一度お試しください。")
     st.stop()
 
 
@@ -71,6 +95,16 @@ def get_data():
 data = get_data()
 
 
+def bu_options():
+    return [b for b in BU_ORDER if b in data] or list(data.keys())
+
+
+def ordered_subjects(bu):
+    order = SUBJECT_ORDER.get(bu, [])
+    subs = list(data[bu].keys())
+    return sorted(subs, key=lambda s: order.index(s) if s in order else 999)
+
+
 def stage_label(bu, subj, s):
     sub = data[bu][subj]
     keys = sub["stages"]
@@ -80,15 +114,14 @@ def stage_label(bu, subj, s):
 
 # ---------------- 結果表示 ----------------
 def render_goals(goals3, subj_used, bu_used, stage_used):
-    # 編集ウィジェットの値を goals3 に反映
     for pillar in PILLARS:
         for i, it in enumerate(goals3.get(pillar, [])):
             k = f"ta_{pillar}_{i}"
             if k in st.session_state:
                 it["text"] = st.session_state[k]
 
-    st.success(f"推定段階：**{stage_label(bu_used, subj_used, stage_used)}**　"
-               f"（{subj_used}・{bu_used}）　※下のアセスメントの回答から自動推定")
+    st.success(f"推定段階：**{stage_label(bu_used, subj_used, stage_used)}**"
+               f"　（{bu_used}・{subj_used}）")
     edit = st.toggle("✏ 編集する（文章を手入力で修正）", value=False, key="k_edit")
 
     for pillar in PILLARS:
@@ -139,45 +172,63 @@ def render_goals(goals3, subj_used, bu_used, stage_used):
 # ---------------- 個別の指導計画ページ ----------------
 def kobetsu_page():
     st.header("📋 個別の指導計画作成ツール")
-    st.caption("学部・教科を選び、かんたんアセスメント（3問）に答えると、"
-               "段階を推定して3観点の目標案を作ります。")
 
-    c1, c2 = st.columns(2)
-    bu = c1.selectbox("学部", list(data.keys()), key="bu")
-    subj = c2.selectbox("教科", list(data[bu].keys()), key="subj")
+    # ===== 選択エリア（枠で囲う）=====
+    with st.container(border=True):
+        st.markdown("<div class='sec'>① 学部・教科をえらぶ</div>", unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        bus = bu_options()
+        bu = c1.selectbox("学部", bus, index=0, key="bu")   # 既定：小学部
+        subs = ordered_subjects(bu)
+        subj_default = subs.index("国語科") if "国語科" in subs else 0  # 既定：国語
+        subj = c2.selectbox("教科", subs, index=subj_default, key=f"subj_{bu}")
 
     stages = data[bu][subj]["stages"]
     assess = core.get_assess(subj, bu)
     focus = core.kobetsu_focus(data, bu, subj)
     focus_labels = [f[0] for f in focus]
 
-    with st.form("kobetsu_form"):
+    with st.form("kobetsu_form", border=True):
         ans = None
         manual_stage = None
         if assess:
-            st.markdown("**① かんたんアセスメント（3問）**　当てはまるものを選んでください")
+            st.markdown("<div class='sec'>② かんたんアセスメント（3問）</div>",
+                        unsafe_allow_html=True)
+            st.caption("お子さんの様子に近いものを選んでください。")
             ans = []
             for i, qd in enumerate(assess):
                 st.markdown(f"<div class='qcard'>Q{i + 1}. {qd['q']}</div>",
                             unsafe_allow_html=True)
-                choice = st.radio(f"Q{i + 1}", list(ANS_MAP.keys()), horizontal=True,
+                choice = st.radio("回答", list(ANS_MAP.keys()), horizontal=True,
                                   index=0, key=f"q_{bu}_{subj}_{i}",
                                   label_visibility="collapsed")
                 ans.append(ANS_MAP[choice])
         else:
-            st.markdown("**① 段階を選択**（この教科はアセスメント未対応です）")
+            st.markdown("<div class='sec'>② 段階をえらぶ</div>", unsafe_allow_html=True)
+            st.caption("この教科はアセスメント未対応のため、段階を直接選びます。")
             manual_stage = st.selectbox("段階", stages,
                                         format_func=lambda s: stage_label(bu, subj, s))
 
-        st.markdown("**② 重視する領域（1つ以上）**")
-        chosen = st.multiselect("領域", focus_labels,
-                                default=focus_labels[:2], label_visibility="collapsed")
-        submitted = st.form_submit_button("個別の指導計画をつくる", type="primary",
-                                          use_container_width=True)
+        st.markdown("<div class='sec'>③ 指導する領域（チェック／複数可）</div>",
+                    unsafe_allow_html=True)
+        chosen = []
+        if focus_labels:
+            ncol = 3
+            cols = st.columns(ncol)
+            for i, lab in enumerate(focus_labels):
+                with cols[i % ncol]:
+                    if st.checkbox(lab, value=(i < 2), key=f"ryo_{bu}_{subj}_{i}"):
+                        chosen.append(lab)
+        else:
+            st.caption("この教科には選べる領域がありません。")
+
+        st.write("")
+        submitted = st.form_submit_button("✅ 個別の指導計画をつくる",
+                                          type="primary", use_container_width=True)
 
     if submitted:
         if not chosen:
-            st.warning("重視する領域を1つ以上選んでください。")
+            st.warning("「③ 指導する領域」を1つ以上チェックしてください。")
         else:
             stage = core.estimate_stage(subj, ans, stages) if ans is not None else manual_stage
             ryos = [r for (lab, rl) in focus if lab in chosen for r in rl]
