@@ -54,6 +54,13 @@ div[data-testid="stTextInput"] input, div[data-testid="stTextArea"] textarea {
     border:2px solid #BFD3C8 !important; border-radius:8px !important; background:#FFF !important;}
 div[data-testid="stTextInput"] input:focus, div[data-testid="stTextArea"] textarea:focus {
     border-color:#3A6B5C !important;}
+/* 表示カード・入力枠の線をはっきりさせて見やすく */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border:2px solid #A3C0B3 !important; border-radius:10px !important;
+    background:#FCFEFD !important; box-shadow:0 1px 4px rgba(58,107,92,0.12) !important;}
+div[data-testid="stForm"] {
+    border:2px solid #A3C0B3 !important; border-radius:10px !important;
+    box-shadow:0 1px 4px rgba(58,107,92,0.12) !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -116,21 +123,35 @@ def stage_label(bu, subj, s):
 
 
 # ===================== ホーム =====================
+def go(target):
+    st.session_state["nav_to"] = target
+    st.rerun()
+
+
 def home_page():
     st.header("📋 指導計画 おたすけツール")
     st.write("特別支援学校（知的障害）向けに、個別の指導計画や年間指導計画づくりを"
-             "お手伝いするツールです。左のメニューから使いたいものを選んでください。")
-    st.markdown("""
-    <div class='homecard'><h3>📋 個別の指導計画</h3>
-    学部・教科を選び、かんたんアセスメント（3問）に答えると、段階を推定して
-    3観点（知識・技能／思考・判断・表現／学びに向かう力）の目標案を作成します。</div>
-    <div class='homecard'><h3>📅 生活単元学習（年間）</h3>
-    学部・段階・期間・合わせる教科を選ぶと、1年分の生活単元（大単元・小単元）を
-    自動で配置します。Word・Excelで出力できます。</div>
-    <div class='homecard'><h3>📚 各教科の年間計画</h3>
-    学部・教科・段階・期間を選ぶと、各教科の年間指導計画（単元名・目標・領域別の
-    学習内容・学習活動例・教材例）を自動で作成します。Word・Excelで出力できます。</div>
-    """, unsafe_allow_html=True)
+             "お手伝いするツールです。下のボタン、または左のメニューから選べます。")
+
+    st.markdown("<div class='homecard'><h3>📋 個別の指導計画</h3>"
+                "学部・教科を選び、かんたんアセスメント（3問）に答えると、段階を推定して"
+                "3観点（知識・技能／思考・判断・表現／学びに向かう力）の目標案を作成します。"
+                "</div>", unsafe_allow_html=True)
+    if st.button("📋 個別の指導計画をひらく", key="go_kobetsu", use_container_width=True):
+        go("📋 個別の指導計画")
+
+    st.markdown("<div class='homecard'><h3>📅 生活単元学習の年間指導計画</h3>"
+                "学部・段階・期間・合わせる教科を選ぶと、1年分の生活単元（大単元・小単元）を"
+                "自動で配置します。Word・Excelで出力できます。</div>", unsafe_allow_html=True)
+    if st.button("📅 生活単元学習の年間指導計画をひらく", key="go_seikatsu", use_container_width=True):
+        go("📅 生活単元学習の年間指導計画")
+
+    st.markdown("<div class='homecard'><h3>📚 各教科の年間計画</h3>"
+                "学部・教科・段階・期間を選ぶと、各教科の年間指導計画（単元名・目標・領域別の"
+                "学習内容・学習活動例・教材例）を自動で作成します。Word・Excelで出力できます。"
+                "</div>", unsafe_allow_html=True)
+    if st.button("📚 各教科の年間計画をひらく", key="go_kakekyoka", use_container_width=True):
+        go("📚 各教科の年間計画")
 
 
 # ===================== 個別の指導計画 =====================
@@ -263,7 +284,7 @@ def kobetsu_page():
         render_goals(goals3, su, bb, sg)
 
 
-# ===================== 生活単元学習（年間） =====================
+# ===================== 生活単元学習の年間指導計画 =====================
 def render_seikatsu(plan, bu, stage, subjects, period):
     for (mlabel, theme, detail) in plan:
         st.markdown(f"<div class='pillar'>【{mlabel}】 "
@@ -306,7 +327,7 @@ def render_seikatsu(plan, bu, stage, subjects, period):
 
 
 def seikatsu_page():
-    st.header("📅 生活単元学習　年間指導計画")
+    st.header("📅 生活単元学習の年間指導計画")
     with st.container(border=True):
         st.markdown("<div class='sec'>① 学部・段階・期間</div>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
@@ -440,9 +461,11 @@ def kakekyoka_page():
 # ===================== メニュー =====================
 st.sidebar.title("メニュー")
 st.sidebar.success("ログイン中")
-mode = st.sidebar.radio("使うもの",
-                        ["🏠 ホーム", "📋 個別の指導計画",
-                         "📅 生活単元学習（年間）", "📚 各教科の年間計画"])
+MENU = ["🏠 ホーム", "📋 個別の指導計画", "📅 生活単元学習の年間指導計画", "📚 各教科の年間計画"]
+if "nav_to" in st.session_state:
+    st.session_state["nav"] = st.session_state.pop("nav_to")
+st.session_state.setdefault("nav", MENU[0])
+mode = st.sidebar.radio("使うもの", MENU, key="nav")
 if st.sidebar.button("ログアウト"):
     st.session_state.clear()
     st.rerun()
@@ -451,7 +474,7 @@ if mode == "🏠 ホーム":
     home_page()
 elif mode == "📋 個別の指導計画":
     kobetsu_page()
-elif mode == "📅 生活単元学習（年間）":
+elif mode == "📅 生活単元学習の年間指導計画":
     seikatsu_page()
 else:
     kakekyoka_page()
