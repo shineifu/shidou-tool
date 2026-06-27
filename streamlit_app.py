@@ -127,8 +127,9 @@ def home_page():
     <div class='homecard'><h3>📅 生活単元学習（年間）</h3>
     学部・段階・期間・合わせる教科を選ぶと、1年分の生活単元（大単元・小単元）を
     自動で配置します。Word・Excelで出力できます。</div>
-    <div class='homecard'><h3>📚 各教科の年間計画（準備中）</h3>
-    各教科の年間指導計画づくり。ウェブ版に順次移行します。</div>
+    <div class='homecard'><h3>📚 各教科の年間計画</h3>
+    学部・教科・段階・期間を選ぶと、各教科の年間指導計画（単元名・目標・領域別の
+    学習内容・学習活動例・教材例）を自動で作成します。Word・Excelで出力できます。</div>
     """, unsafe_allow_html=True)
 
 
@@ -350,12 +351,98 @@ def seikatsu_page():
         render_seikatsu(plan, bb, sg, subs2, pr2)
 
 
+# ===================== 各教科の年間計画 =====================
+def render_kakekyoka(units, bu, subj, div_idx, duration):
+    for i, u in enumerate(units):
+        r = core.render_edited(data, bu, subj, div_idx, u)
+        month = core.month_label(i, duration)
+        st.markdown(f"<div class='pillar'>【{month}】 {r['単元名']}　"
+                    f"<span style='font-weight:400;font-size:0.85rem'>"
+                    f"（{r['段階表示']}）</span></div>", unsafe_allow_html=True)
+        gt = core.goal_text(r["目標"])
+        if gt:
+            st.markdown(f"<div class='goalrow'><b>目標</b>　{gt}</div>",
+                        unsafe_allow_html=True)
+        for b in r["blocks"]:
+            with st.container(border=True):
+                st.markdown(f"**◆ {b['領域']}**")
+                cl = core.content_lines(b)
+                if cl:
+                    st.markdown("**学習内容**\n" + "\n".join(f"- {x}" for x in cl))
+                act, _ref = core.split_activities(b["活動"])
+                acts = [it.get("t", "") for it in act if it.get("t")]
+                if acts:
+                    st.markdown("**学習活動例**\n" + "\n".join(f"- {x}" for x in acts))
+                mats = [it.get("t", "") for it in b["教材"] if it.get("t")]
+                if mats:
+                    st.markdown("**教材例**\n" + "\n".join(f"- {x}" for x in mats))
+
+    st.divider()
+    d1, d2 = st.columns(2)
+    with tempfile.TemporaryDirectory() as td:
+        wp = os.path.join(td, "k.docx")
+        xp = os.path.join(td, "k.xlsx")
+        core.export_word(data, (bu, subj, div_idx), units, wp, duration,
+                         False, True, False, True)
+        core.export_excel(data, (bu, subj, div_idx), units, xp, duration,
+                          False, True, False, True)
+        with open(wp, "rb") as f:
+            d1.download_button("📄 Wordで出力", f.read(),
+                               file_name=f"{subj}_年間指導計画.docx",
+                               mime=DOCX_MIME, use_container_width=True)
+        with open(xp, "rb") as f:
+            d2.download_button("📊 Excelで出力", f.read(),
+                               file_name=f"{subj}_年間指導計画.xlsx",
+                               mime=XLSX_MIME, use_container_width=True)
+
+
+def kakekyoka_page():
+    st.header("📚 各教科の年間指導計画")
+    with st.container(border=True):
+        st.markdown("<div class='sec'>① 学部・教科・段階・期間</div>",
+                    unsafe_allow_html=True)
+        c1, c2 = st.columns(2)
+        bu = c1.selectbox("学部", bu_options(), index=0, key="kk_bu")
+        subs = ordered_subjects(bu)
+        sd = subs.index("国語科") if "国語科" in subs else 0
+        subj = c2.selectbox("教科", subs, index=sd, key=f"kk_subj_{bu}")
+        divs = core.division_names(data, bu, subj)
+        c3, c4, c5 = st.columns(3)
+        div_idx = 0
+        if len(divs) > 1:
+            div_idx = c3.selectbox("段階区分", list(range(len(divs))),
+                                   format_func=lambda i: divs[i],
+                                   key=f"kk_div_{bu}_{subj}")
+        stages = data[bu][subj]["stages"]
+        stage = c4.selectbox("段階", stages,
+                             format_func=lambda s: stage_label(bu, subj, s),
+                             key=f"kk_stage_{bu}_{subj}")
+        period = c5.selectbox("期間", [1, 2, 3], index=1,
+                              format_func=lambda d: PERIOD_LABELS[d], key="kk_period")
+
+    if st.button("📚 年間計画をつくる", type="primary",
+                 use_container_width=True, key="kk_gen"):
+        units = core.make_plan(data, bu, subj, div_idx, stage, period)
+        st.session_state["kk_units"] = units
+        st.session_state["kk_used"] = (bu, subj, div_idx, period)
+
+    units = st.session_state.get("kk_units")
+    if st.session_state.get("kk_used"):
+        bb, ss, di, pr = st.session_state["kk_used"]
+        if not units:
+            st.warning("この段階には内容が登録されていないため、計画を作成できませんでした。"
+                       "別の段階や段階区分をお試しください。")
+        else:
+            st.divider()
+            render_kakekyoka(units, bb, ss, di, pr)
+
+
 # ===================== メニュー =====================
 st.sidebar.title("メニュー")
 st.sidebar.success("ログイン中")
 mode = st.sidebar.radio("使うもの",
                         ["🏠 ホーム", "📋 個別の指導計画",
-                         "📅 生活単元学習（年間）", "📚 各教科の年間計画（準備中）"])
+                         "📅 生活単元学習（年間）", "📚 各教科の年間計画"])
 if st.sidebar.button("ログアウト"):
     st.session_state.clear()
     st.rerun()
@@ -367,5 +454,4 @@ elif mode == "📋 個別の指導計画":
 elif mode == "📅 生活単元学習（年間）":
     seikatsu_page()
 else:
-    st.header("各教科の年間計画")
-    st.info("この機能はウェブ版に順次移行します。今しばらくお待ちください。")
+    kakekyoka_page()
