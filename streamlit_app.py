@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """指導計画 おたすけツール（ウェブ版 / Streamlit）"""
 import os
+import html
 import tempfile
 import streamlit as st
 import nenkan_app as core
@@ -61,8 +62,16 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
 div[data-testid="stForm"] {
     border:2px solid #A3C0B3 !important; border-radius:10px !important;
     box-shadow:0 1px 4px rgba(58,107,92,0.12) !important;}
-</style>
-""", unsafe_allow_html=True)
+/* 単元の表（エクセル風）。単元ごとに1つの大枠＋中に細かいセル */
+.unittbl {width:100%; border-collapse:collapse; margin:0 0 18px 0; font-size:0.97rem;
+    border:2px solid #3A6B5C;}
+.unittbl td {border:1px solid #9FBBAF; padding:7px 11px; vertical-align:top; line-height:1.6;}
+.unittbl td.lbl {background:#EAF1EE; font-weight:700; white-space:nowrap; width:118px;}
+.unittbl td.blkhd {background:#DCE8E2; font-weight:700;}
+.unittbl td.subhd {background:#EAF1EE; font-weight:700;}
+.unittbl td.sj {background:#F4F8F6; font-weight:700; white-space:nowrap; width:90px;}
+.unittbl td.ry {white-space:nowrap; color:#3A6B5C;}
+</style>""", unsafe_allow_html=True)
 
 
 def _correct_password():
@@ -285,29 +294,58 @@ def kobetsu_page():
 
 
 # ===================== 生活単元学習の年間指導計画 =====================
+def _esc(s):
+    return html.escape(str(s))
+
+
+def _seikatsu_swap(i, d):
+    plan = st.session_state["s_plan"]
+    j = i + d
+    if 0 <= j < len(plan):
+        mi, ti, di = plan[i]
+        mj, tj, dj = plan[j]
+        plan[i] = (mi, tj, dj)   # 月ラベルは位置に固定、中身だけ入替
+        plan[j] = (mj, ti, di)
+        st.rerun()
+
+
 def render_seikatsu(plan, bu, stage, subjects, period):
-    for (mlabel, theme, detail) in plan:
+    for i, (mlabel, theme, detail) in enumerate(plan):
         st.markdown(f"<div class='pillar'>【{mlabel}】 "
-                    f"{core.theme_display_name(theme['name'], bu)}</div>",
+                    f"{_esc(core.theme_display_name(theme['name'], bu))}</div>",
                     unsafe_allow_html=True)
+        b1, b2, _sp = st.columns([1.2, 1.2, 4])
+        if b1.button("↑ 前と入替", key=f"s_up_{i}", disabled=(i == 0),
+                     use_container_width=True):
+            _seikatsu_swap(i, -1)
+        if b2.button("↓ 次と入替", key=f"s_dn_{i}", disabled=(i == len(plan) - 1),
+                     use_container_width=True):
+            _seikatsu_swap(i, 1)
+
         subs_idx = theme.get("_subs")
         subs = (core.get_subunits(theme["name"], bu, stage, indices=subs_idx)
                 if subs_idx is not None else
                 core.get_subunits(theme["name"], bu, stage, core.subunit_limit(period)))
+        rows = []
         for si, su in enumerate(subs, 1):
-            with st.container(border=True):
-                st.markdown(f"**小単元{si}　{su['title']}**　"
-                            f"<span style='color:#666'>{su['activity']}</span>",
-                            unsafe_allow_html=True)
-                lines = []
-                for subj, items in su["subjects"].items():
-                    msubj = core.map_subunit_subj(bu, subj)
-                    if msubj not in subjects:
-                        continue
-                    for it in items:
-                        ryo = core.map_subunit_ryoiki(bu, it["領域"])
-                        lines.append(f"- **{msubj.replace('科', '')}**〔{ryo}〕{it['学習']}")
-                st.markdown("\n".join(lines) if lines else "（選択教科に該当なし）")
+            rows.append(f"<tr><td class='subhd' colspan='3'>小単元{si}　"
+                        f"{_esc(su['title'])}　<span style='font-weight:400;color:#666'>"
+                        f"{_esc(su['activity'])}</span></td></tr>")
+            any_line = False
+            for subj, items in su["subjects"].items():
+                msubj = core.map_subunit_subj(bu, subj)
+                if msubj not in subjects:
+                    continue
+                for it in items:
+                    ryo = core.map_subunit_ryoiki(bu, it["領域"])
+                    rows.append(f"<tr><td class='sj'>{_esc(msubj.replace('科', ''))}</td>"
+                                f"<td class='ry'>〔{_esc(ryo)}〕</td>"
+                                f"<td>{_esc(it['学習'])}</td></tr>")
+                    any_line = True
+            if not any_line:
+                rows.append("<tr><td colspan='3' style='color:#888'>"
+                            "（選択した教科に該当する内容はありません）</td></tr>")
+        st.markdown(f"<table class='unittbl'>{''.join(rows)}</table>", unsafe_allow_html=True)
 
     st.divider()
     d1, d2 = st.columns(2)
@@ -373,30 +411,77 @@ def seikatsu_page():
 
 
 # ===================== 各教科の年間計画 =====================
+def _kk_move(i, d):
+    units = st.session_state["kk_units"]
+    j = i + d
+    if 0 <= j < len(units):
+        units[i], units[j] = units[j], units[i]
+        st.rerun()
+
+
+def _kk_stage(i, delta, bu, subj):
+    units = st.session_state["kk_units"]
+    u = units[i]
+    sts = data[bu][subj]["stages"]
+    if u["段階"] not in sts:
+        return
+    nx = sts.index(u["段階"]) + delta
+    if 0 <= nx < len(sts):
+        u["段階"] = sts[nx]
+        st.rerun()
+
+
+def _kk_name(i, bu, subj):
+    units = st.session_state["kk_units"]
+    u = units[i]
+    if u.get("edit", {}).get("name"):
+        u["edit"]["name"] = None
+    r = u["blocks"][0]["領域"]
+    cands = core.name_candidates_for(data, bu, subj, r)
+    if cands:
+        u["name_idx"] = (u["name_idx"] + 1) % len(cands)
+    st.rerun()
+
+
 def render_kakekyoka(units, bu, subj, div_idx, duration):
     for i, u in enumerate(units):
         r = core.render_edited(data, bu, subj, div_idx, u)
         month = core.month_label(i, duration)
-        st.markdown(f"<div class='pillar'>【{month}】 {r['単元名']}　"
+        st.markdown(f"<div class='pillar'>【{month}】 {_esc(r['単元名'])}　"
                     f"<span style='font-weight:400;font-size:0.85rem'>"
-                    f"（{r['段階表示']}）</span></div>", unsafe_allow_html=True)
+                    f"（{_esc(r['段階表示'])}）</span></div>", unsafe_allow_html=True)
+        b1, b2, b3, b4, b5 = st.columns(5)
+        if b1.button("↑ 前と入替", key=f"k_up_{i}", disabled=(i == 0), use_container_width=True):
+            _kk_move(i, -1)
+        if b2.button("↓ 次と入替", key=f"k_dn_{i}", disabled=(i == len(units) - 1), use_container_width=True):
+            _kk_move(i, 1)
+        if b3.button("単元名 別候補", key=f"k_nm_{i}", use_container_width=True):
+            _kk_name(i, bu, subj)
+        if b4.button("段階▲", key=f"k_su_{i}", use_container_width=True):
+            _kk_stage(i, 1, bu, subj)
+        if b5.button("段階▼", key=f"k_sd_{i}", use_container_width=True):
+            _kk_stage(i, -1, bu, subj)
+
+        rows = []
         gt = core.goal_text(r["目標"])
         if gt:
-            st.markdown(f"<div class='goalrow'><b>目標</b>　{gt}</div>",
-                        unsafe_allow_html=True)
+            rows.append(f"<tr><td class='lbl'>目標</td><td>{_esc(gt)}</td></tr>")
         for b in r["blocks"]:
-            with st.container(border=True):
-                st.markdown(f"**◆ {b['領域']}**")
-                cl = core.content_lines(b)
-                if cl:
-                    st.markdown("**学習内容**\n" + "\n".join(f"- {x}" for x in cl))
-                act, _ref = core.split_activities(b["活動"])
-                acts = [it.get("t", "") for it in act if it.get("t")]
-                if acts:
-                    st.markdown("**学習活動例**\n" + "\n".join(f"- {x}" for x in acts))
-                mats = [it.get("t", "") for it in b["教材"] if it.get("t")]
-                if mats:
-                    st.markdown("**教材例**\n" + "\n".join(f"- {x}" for x in mats))
+            rows.append(f"<tr><td class='blkhd' colspan='2'>◆ {_esc(b['領域'])}</td></tr>")
+            cl = core.content_lines(b)
+            if cl:
+                rows.append("<tr><td class='lbl'>学習内容</td><td>"
+                            + "<br>".join(_esc(x) for x in cl) + "</td></tr>")
+            act, _ref = core.split_activities(b["活動"])
+            acts = [it.get("t", "") for it in act if it.get("t")]
+            if acts:
+                rows.append("<tr><td class='lbl'>学習活動例</td><td>"
+                            + "<br>".join("・" + _esc(x) for x in acts) + "</td></tr>")
+            mats = [it.get("t", "") for it in b["教材"] if it.get("t")]
+            if mats:
+                rows.append("<tr><td class='lbl'>教材例</td><td>"
+                            + "<br>".join("・" + _esc(x) for x in mats) + "</td></tr>")
+        st.markdown(f"<table class='unittbl'>{''.join(rows)}</table>", unsafe_allow_html=True)
 
     st.divider()
     d1, d2 = st.columns(2)
